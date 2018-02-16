@@ -1,58 +1,53 @@
-# Receives a dataframe with the input data.
-# Returns a dataframe and a vector.
-# The dataframe of dimensions m x n is the result of the following steps:
-# - Remove variables filled only with "DIV/0!"
-# - Remove observations containing "DIV/0!" values
-# - Remove variables that won't be used as predictors, i.e.,
-#   variables row_number, user_name, classe, timestamp 
-#   variables and window variables.
-# - Turn factor variables into numeric variables
-# - Remove variables that only contain 0s
-# - Remove observations containing NAs
-# The vector of length m contains the labels that classify the 
-# rows (classe variable).
-cleanUpInput <- function(inputDF) {
+# Non-aggregate variables and variables that are not going to be used for prediction:
+ignoreList <- c("X", "user_name",    "new_window",           "num_window",
+                "cvtd_timestamp",    "raw_timestamp_part_1", "raw_timestamp_part_2", 
+                "roll_belt",         "pitch_belt",           "yaw_belt",
+                "gyros_belt_x",      "gyros_belt_y",         "gyros_belt_z",
+                "accel_belt_x",      "accel_belt_y",         "accel_belt_z",
+                "magnet_belt_x",     "magnet_belt_y",        "magnet_belt_z",
+                "roll_arm",          "pitch_arm",            "yaw_arm",
+                "gyros_arm_x",       "gyros_arm_y",          "gyros_arm_z",
+                "accel_arm_x",       "accel_arm_y",          "accel_arm_z",
+                "magnet_arm_x",      "magnet_arm_y",         "magnet_arm_z",
+                "roll_dumbbell",     "pitch_dumbbell",       "yaw_dumbbell",
+                "gyros_dumbbell_x",  "gyros_dumbbell_y",     "gyros_dumbbell_z",
+                "accel_dumbbell_x",  "accel_dumbbell_y",     "accel_dumbbell_z",
+                "magnet_dumbbell_x", "magnet_dumbbell_y",    "magnet_dumbbell_z",
+                "roll_forearm",      "pitch_forearm",        "yaw_forearm",
+                "gyros_forearm_x",   "gyros_forearm_y",      "gyros_forearm_z",
+                "accel_forearm_x",   "accel_forearm_y",      "accel_forearm_z",
+                "magnet_forearm_x",  "magnet_forearm_y",     "magnet_forearm_z")
 
-  # Remove variables containing only DIV/0!
-  numDIV0 <- apply(inputDF, 2, function(col) {
-    length(grep("DIV", col))
-  })
-  clean1 <- inputDF[,numDIV0 < max(numDIV0)]
+# Cleans up the WLE dataset. Returns a new dataframe and a vector 
+# with the classification values.
+# Performs the following steps:
+# - Remove variables included in ignoreList.
+# - Remove variables with near zero variance
+# - Turn factor variables into numeric variables
+# - Remove variables that contain NAs
+cleanUpInput <- function(inputDF, ignoreList) {
+
+  classeValues <- inputDF$classe
   
-  # Remove observations containing DIV/0!
-  removeObs <- apply(clean1, 1, function(row) {
-    length(grep("DIV", row)) > 0
-  })
-  clean2 <- clean1[!removeObs, ]
-  
-  # Remove variables that won't be used as predictors:
-  # 1: row number
-  # 2: user_name
-  excludeColumns <- c(1, 2,
-                      grep("classe", names(clean2)), 
-                      grep("timestamp", names(clean2)), 
-                      grep("window", names(clean2)))
-  clean3 <- clean2[, -excludeColumns]
-  
-  
-  # Turn factors into numeric values
-  clean4 <- clean3
-  for(i in 1:ncol(clean3)) {
-    if (class(clean3[,i]) == "factor") {
-      clean4[,i] <- as.numeric(as.character(clean3[,i]))
+  # Remove variables from ignoreList
+  clean1 <- inputDF[, !(names(inputDF) %in% c(ignoreList, "classe"))]  
+
+  # Remove variables with near zero variance
+  clean2 <- clean1[,-nearZeroVar(clean1)]
+
+  # Turn factor variables to numeric
+  clean3 <- clean2
+  for(i in 1:ncol(clean2)) {
+    if (class(clean2[,i]) == "factor") {
+      clean3[,i] <- as.numeric(as.character(clean2[,i]))
     }
   }
+
+  # Replace missing values
+  clean4 <- as.data.frame(impute(clean3))
   
-  # Remove columns which are all 0s
-  all0 <- apply(clean4, 2, function(col) {
-    min(col) == 0 && max(col) == 0
-  })
-  clean5 <- clean4[,!all0]
+  # Repeat remove variables with near zero variance
+  clean5 <- clean4[,-nearZeroVar(clean4)]
   
-  # Remove observations containing NAs
-  removeObs <- apply(clean5, 1, function(row) {
-    length(row[is.na(row)]) > 0
-  })
-  
-  return(list(df = clean5[!removeObs, ], classe = clean2$classe[!removeObs]))
+  return(list(df = clean5, classe = classeValues))
 }
