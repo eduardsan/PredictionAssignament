@@ -7,15 +7,163 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+library(caret)
+library(dplyr)
+library(rafalib)
+library(e1071)
 ```
 
 ## Executive Summary
 
 In this project, the goal is to predict the manner in which an exercise was done using data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
 
-```{r cars}
-summary(cars)
+## Understanding the structure of the data
+
+The Weight Lifting Exercise Dataset contains thousands of data points. Some of them are measurements at a point in time and some of them are covariates obtained by the application of a certain function, such as min, max, average and more advanced ones. Measurements are grouped in time windows and the functions for generating new covariates operate on those that belong to the same window. These new covariates are the interesting ones for the prediction exercise, because they provide summarised information about the activity of the participants while performing the exercise.
+
+## Tidying up the data
+
+To select the interesting data for the assignment and tidying it up we perform the following steps:
+
+1. Select only rows that contain aggregate measurements (flagged in the dataset with `new_window == "yes"`).
+2. Ignore variables that are not useful for prediction, e.g., *user_name*, timestamps and direct measurements.
+3. Remove variables with near zero variance using R's `nearZeroVar()` function.
+4. Turn factor variables to numeric.
+5. Remove columns which have *NAs* using R's `impute()` function.
+
 ```
+# Non-aggregate variables and variables that are not going to be used for prediction:
+ignoreList <- c("X", "user_name",    "new_window",           "num_window",
+                "cvtd_timestamp",    "raw_timestamp_part_1", "raw_timestamp_part_2", 
+                "roll_belt",         "pitch_belt",           "yaw_belt",
+                ...
+                "magnet_forearm_x",  "magnet_forearm_y",     "magnet_forearm_z")
+                
+cleanUpInput <- function(inputDF, ignore = ignoreList) {
+
+  classeValues <- inputDF$classe
+  
+  # Remove variables from ignore
+  clean1 <- inputDF[, !(names(inputDF) %in% c(ignore, "classe"))]  
+
+  # Remove variables with near zero variance
+  clean2 <- clean1[,-nearZeroVar(clean1)]
+
+  # Turn factor variables to numeric
+  clean3 <- clean2
+  for(i in 1:ncol(clean2)) {
+    if (class(clean2[,i]) == "factor") {
+      clean3[,i] <- as.numeric(as.character(clean2[,i]))
+    }
+  }
+
+  # Replace missing values
+  clean4 <- as.data.frame(impute(clean3))
+  
+  # Repeat remove variables with near zero variance
+  clean5 <- clean4[,-nearZeroVar(clean4)]
+  
+  return(list(df = clean5, classe = classeValues))
+}
+```
+
+The same steps will be applied to the testing data for validating the model's performance.
+
+## Feature selection
+
+To make an initial selection of features I computed a correlation matrix. The big quantity of variables makes it difficult to visualize all relationship or to do this task manually. For these reasons I made a function that iterates over all variables discarding those whose correlation factor with an already selected variable equals or exceeds a given threshold.
+
+```
+processCorMatrix <- function(corMatrix, threshold = 0.75) {
+  # Initialize selected and discarded sets
+  select <- vector("numeric")
+  discard <- vector("numeric")
+  
+  n <- nrow(corMatrix)
+
+  # Iterate over all elements in upper-right part of the diagonal
+  for (i in 1:(n - 1)) {
+    # if var i has not been discarded, add to select
+    if (!(i %in% discard)) {
+      select <- c(select, i)
+    }
+    # discard all vars j with correlation factor greater or equal to threshold
+    for (j in (i + 1):n) {
+      if (is.na(corMatrix[i, j])) {
+        print(paste("AFDSGDSFG", i, j))
+      }
+        
+      if (corMatrix[i, j] >= threshold) {
+        discard <- c(discard, j)
+        
+      }
+    }
+  }
+  select
+}
+```
+
+The following script makes use of the previous support function to tidy up the dataset and perform an initial selection of covariates. 
+
+```{r main, warning=FALSE}
+# source support code
+source("cleanUpInput.R")
+source("processCorMatrix.R")
+
+# ensure results are repeatable
+set.seed(123)
+
+# Read data
+training <- read.csv("data/pml-training.csv")
+
+# Tidy data
+clean <- cleanUpInput(training[training$new_window == "yes",])
+
+# Use correlation matrix to select variables
+correlationMatrix <- cor(clean$df)
+selVars <- processCorMatrix(correlationMatrix, .8)
+colnames(correlationMatrix)[selVars]
+```
+
+The resulting list of covariates is still rather long. Plotting and visual inspection of the variables does not help much either. It is difficult to identify clear patterns that could lead to candidates for the model. At this point I decide to leave the heavy lifting to the Caret package.
+
+## Building the model
+
+Between the handful of training methods presented in the "Practical Machine Learning" course, random forests seem a reasonable option. According to the course material, they have good accuracy, although they may suffer from low speed, difficult interpretability and overfitting. Speed is not a problem with the dataset at hand. Interpretability may hard, but it was already difficult to find clear patterns during the exploratory analysis.
+
+To create the prediction model I take advantage of the capabilities of the `train()` function. In particular, I use the `trainControl()` function to specify how cross validation will be performed.
+
+**TODO: Afegir explicació cross validation**
+
+```{r fitControl}
+fitControl <- trainControl(## 10-fold CV
+  method = "repeatedcv",
+  number = 6,
+  ## repeated ten times
+  repeats = 10)
+```
+
+```{r training}
+rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
+modFitAll <-
+  train(classe ~ ., data = rfDF, method = "rf", trControl = fitControl)
+```
+
+
+Out of sample error should be slightly bigger than reported by the model, rf has a tendency to overfitting.
+
+## Predict with the test data
+
+
+[//]: (how you used cross validation)
+
+[//]: (what you think the expected out of sample error is)
+
+[//]: (why you made the choices you did)
+
+[//]: (You will also use your prediction model to predict 20 different test cases.)
+
 
 ## Including Plots
 
