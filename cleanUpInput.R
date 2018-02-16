@@ -21,16 +21,16 @@ ignoreList <- c("X", "user_name",    "new_window",           "num_window",
 # Cleans up the WLE dataset. Returns a new dataframe and a vector 
 # with the classification values.
 # Performs the following steps:
-# - Remove variables included in ignoreList.
+# - Remove variables included in ignore.
 # - Remove variables with near zero variance
 # - Turn factor variables into numeric variables
 # - Remove variables that contain NAs
-cleanUpInput <- function(inputDF, ignoreList) {
+cleanUpInput <- function(inputDF, ignore = ignoreList) {
 
   classeValues <- inputDF$classe
   
-  # Remove variables from ignoreList
-  clean1 <- inputDF[, !(names(inputDF) %in% c(ignoreList, "classe"))]  
+  # Remove variables from ignore
+  clean1 <- inputDF[, !(names(inputDF) %in% c(ignore, "classe"))]  
 
   # Remove variables with near zero variance
   clean2 <- clean1[,-nearZeroVar(clean1)]
