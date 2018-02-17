@@ -1,7 +1,7 @@
 ---
 title: "PredictionAssignment"
 author: "Eduard Santamaria"
-date: "February 6, 2018"
+date: "February 18, 2018"
 output: html_document
 ---
 
@@ -12,6 +12,7 @@ library(caret)
 library(dplyr)
 library(rafalib)
 library(e1071)
+library(gridExtra)
 ```
 
 ## Executive Summary
@@ -22,7 +23,7 @@ In this project, the goal is to predict the manner in which an exercise was done
 
 The dataset contains many empty fields and needs some tidying up before we can proceed with the rest of steps. To clean the data the following operations are performed:
 
-1. Remove variables that are not useful for prediction, e.g., *user_name*, timestamps and direct measurements.
+1. Remove variables that are not useful for prediction, e.g., *user_name* and timestamps.
 2. Remove variables with near zero variance using R's `nearZeroVar()` function.
 3. Turn factor variables to numeric.
 4. Remove columns which have *NAs* using R's `impute()` function.
@@ -32,7 +33,7 @@ The dataset contains many empty fields and needs some tidying up before we can p
 ignoreList <- c("X", "user_name",    "new_window",           "num_window",
                 "cvtd_timestamp",    "raw_timestamp_part_1", "raw_timestamp_part_2")
                 
-cleanUpInput <- function(inputDF, ignore = ignoreList) {
+cleanUpInput <- function(inputDF, ignore = ignoreList, isTest = FALSE) {
 
   classeValues <- inputDF$classe
   
@@ -54,17 +55,20 @@ cleanUpInput <- function(inputDF, ignore = ignoreList) {
   clean4 <- as.data.frame(impute(clean3))
   
   # Repeat remove variables with near zero variance
-  clean5 <- clean4[,-nearZeroVar(clean4)]
-  
+  if (isTest)
+    clean5 <- clean4
+  else
+    clean5 <- clean4[,-nearZeroVar(clean4)]
+
   return(list(df = clean5, classe = classeValues))
 }
 ```
 
-The same steps will be applied to the testing data for validating the model's performance.
+This function will also be applied to the testing dataset used for the prediction.
 
 ## Feature selection
 
-To make an initial selection of features I computed a correlation matrix. The amount of variables makes it difficult to visualize all relationships or to compare them manually. For these reasons I made a function that iterates over all variables discarding those whose correlation factor with an already selected variable equals or exceeds a given threshold.
+To make an initial selection of features a correlation matrix was computed. The amount of variables makes it difficult to visualize all relationships or to compare them manually. For these reasons, a programmatic approach was attempted using the following function. The function iterates over all variables of the correlation matrix discarding those whose correlation factor with an already selected variable equals or exceeds a given threshold.
 
 ```
 processCorMatrix <- function(corMatrix, threshold = 0.75) {
@@ -96,7 +100,7 @@ processCorMatrix <- function(corMatrix, threshold = 0.75) {
 }
 ```
 
-The following script makes use of the previous support functions to tidy up the dataset and perform an initial selection of covariates. 
+The next script makes use of the previous support functions to tidy up the dataset and perform an initial selection of covariates. 
 
 ```{r main, warning=FALSE}
 # source support code
@@ -118,23 +122,30 @@ selVars <- processCorMatrix(correlationMatrix)
 colnames(correlationMatrix)[selVars]
 ```
 
-The resulting list of covariates is still long. Plotting and visual inspection of the variables does not provide clear hints about which variables would be the more appropriate to construct the model. It is difficult to identify clear patterns that could lead to candidates for the model. At this point I decide to leave the heavy lifting to the Caret package.
+The plots in the next figure display some of the selected variables. As shown later, these are the four most important ones of our final model. We can certainly see that some values stand out from the rest, for instance in the upper right part of *roll_belt* plot or in the lower left part of *pitch_forearm* plot, but identifying the right variables for the model through visual inspection of such plots would be a difficult and tedious process. Therefore I decide to leave the final selection of variables to the Caret package.
 
-**TODO: Afegir figura on es vegi algun patró**
+```{r variable_plots}
+rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
+
+p1 <- qplot(y = roll_belt, data = rfDF) + geom_point(aes(color = classe))
+p2 <- qplot(y = magnet_dumbbell_z, data = rfDF) + geom_point(aes(color = classe))
+p3 <- qplot(y = pitch_forearm, data = rfDF) + geom_point(aes(color = classe))
+p4 <- qplot(y = pitch_belt, data = rfDF) + geom_point(aes(color = classe))
+
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
 
 ## Building the model
 
-Between the handful of training methods presented in the "Practical Machine Learning" course, random forests seem a reasonable option. According to the course material, they have good accuracy, although they may suffer from low training speed, difficult interpretability and overfitting. Speed turns out to be an issue with the problem and the resources at hand. To keep the computing time around ten minutes, only a sample (35%) of the available training data is used for training the model.
+Between the handful of training methods presented in the **Practical Machine Learning** course, random forests seem a reasonable option. According to the course material, they have good accuracy, although they may suffer from low training speed, difficult interpretability and overfitting. Speed turns out to be an issue with the problem and the resources at hand. To keep the computing time around ten minutes, only a sample (35%) of the available training data is used for training the model.
 
 ```{r slicing}
-rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
-
 inTrain <- createDataPartition(y = clean$classe, p = .35, list = FALSE)
 trn <- rfDF[inTrain, ]
 tst <- rfDF[-inTrain, ]
 ```
 
-To create the prediction model I take advantage of the capabilities of the `train()` function. In particular, I use the `trainControl()` function to specify how cross validation will be performed. In the code snippet below, the configuration is defined to perform 10-fold cross-validation.
+To create the prediction model I take advantage of the capabilities of the `train()` function. I also use the `trainControl()` function to specify how cross validation will be performed. In the code snippet below, the configuration is defined to perform 10-fold cross-validation.
 
 ```{r fitControl}
 fitControl <- trainControl(
@@ -142,16 +153,14 @@ fitControl <- trainControl(
   number = 10)
 ```
 
-Now we let Caret do the training using random forests and the specified configuration parameters. The features that will be considered are those obtained after evaluating the correlation matrix (see **Feature selection** section above).
+Now we let Caret do the training using random forests with the specified configuration parameters. The features that will be considered are those obtained after evaluating the correlation matrix (see **Feature selection** section above).
 
 ```{r training}
 modFit <-
   train(classe ~ ., data = trn, method = "rf", trControl = fitControl)
 ```
 
-To check how the selection of certain parameters affects the resulting model, some other options were tested. The table below shows the `Accuracy` of four computed models. Column labels indicate what threshold was used for the correlation factor used to choose variables (in parenthesis the number of variables). Row labels indicate which value was used for k-folding.
-
-Below we see some properties of the resulting model. 6869 samples and 37 predictors were used, and the maximum accuracy reached was 0.98.
+Below we see some properties of the resulting model: 6869 samples and 37 predictors were used, and the maximum accuracy reached was 0.98.
 
 ```{r model}
 modFit
@@ -163,7 +172,7 @@ This is the confusion matrix of the final model:
 modFit$finalModel$confusion
 ```
 
-Before testing the model with the test data, we can evaluate the model with the remaining values from our previous partitioning (which was done due to performance considerations). We find out that accuracy is very close to the one reached by the model.
+Before predicting with the test data, we can evaluate the model with the remaining values from our previous partitioning. We find out that accuracy is slightly better to the one reached by the model.
 
 ```{r pre-test}
 pred <- predict(modFit, tst)
@@ -185,16 +194,14 @@ As the last step, we predict one more time, but using the test data that was res
 
 ```{r final-test}
 testing <- read.csv("data/pml-testing.csv")
-clean_t <- cleanUpInput(testing)
-pred <- predict(modFit, data = clean_t)
-cm <- confusionMatrix(pred, clean_t$classe)
-
-cm$overall[1]
-cm$table
+clean_t <- cleanUpInput(testing, isTest = TRUE)
+predict(modFit, clean_t$df)
 ```
 
 ## Conclusion
 
-The main problem encountered while doing the project was understanding the structure of the input data. Rows that seem to contain instant measurements are combined with rows that contain aggregated values, such as averages, minimums or maximums, among other more complex functions. Some columns only make sense for the latter, which means there are lots of empty fields. This was confusing and my inclination was to believe that the relevant rows were the ones with aggregate values, which somehow would summarize and characterize the performance of the participants during the whole duration of one run of the exercise. It wasn't until I had a look at the test data that I realized I was doing it wrong.
+The main problem encountered while doing the project was understanding the structure of the input data. Rows that seem to contain instant measurements are combined with rows that contain aggregated values, such as averages, minimums or maximums, among other more complex computations. Some columns only make sense for the latter, which means there are lots of empty fields. This was confusing and my inclination was to believe that the relevant rows were the ones with aggregate values, which somehow would summarize and characterize the performance of the participants during one run of the exercise. It wasn't until I had a look at the test data that I realized that this was not the case.
 
-The second problem was selecting the variables, there are many of them and manual approaches and visual inspection of many plots would not help. And, finally, choosing a training method and its related parameters was not an easy decision either. The **Practical Machine Learning** course of the **Data Science Specialization** covers a lot of material rather superficially. Although I researched other resources to learn more about the topic, in the end my decisions were based on trial and error than on solid arguments.
+The second problem was selecting the variables, there are many of them and manual approaches and visual inspection of many plots would not help.
+
+Finally, choosing a training method and its related parameters was not an easy decision either. The **Practical Machine Learning** course of the **Data Science Specialization** covers a lot of material rather superficially. I researched other resources to learn more about the topic, but in the end my decisions were primarily based on trial and error.

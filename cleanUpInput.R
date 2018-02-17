@@ -11,7 +11,7 @@ ignoreList <- c("X", "user_name",    "new_window",           "num_window",
 # - Remove variables with near zero variance
 # - Turn factor variables into numeric variables
 # - Remove variables that contain NAs
-cleanUpInput <- function(inputDF, ignore = ignoreList) {
+cleanUpInput <- function(inputDF, ignore = ignoreList, isTest = FALSE) {
 
   classeValues <- inputDF$classe
   
@@ -33,7 +33,10 @@ cleanUpInput <- function(inputDF, ignore = ignoreList) {
   clean4 <- as.data.frame(impute(clean3))
   
   # Repeat remove variables with near zero variance
-  clean5 <- clean4[,-nearZeroVar(clean4)]
-  
+  if (isTest)
+    clean5 <- clean4
+  else
+    clean5 <- clean4[,-nearZeroVar(clean4)]
+
   return(list(df = clean5, classe = classeValues))
 }

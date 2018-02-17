@@ -2,6 +2,7 @@
 library(caret)
 library(dplyr)
 library(rafalib)
+library(gridExtra)
 
 # source support code
 source("cleanUpInput.R")
@@ -22,8 +23,12 @@ selVars <- processCorMatrix(correlationMatrix)
 colnames(correlationMatrix)[selVars]
 
 # Check important variables
-qplot(1:length(classe), total_accel_forearm
-      , data = rfDF) + geom_point(aes(color = rfDF$classe)) + geom_smooth()
+p1 <- qplot(y = roll_belt, data = rfDF) + geom_point(aes(color = classe))
+p2 <- qplot(y = magnet_dumbbell_z, data = rfDF) + geom_point(aes(color = classe))
+p3 <- qplot(y = pitch_forearm, data = rfDF) + geom_point(aes(color = classe))
+p4 <- qplot(y = pitch_belt, data = rfDF) + geom_point(aes(color = classe))
+
+grid.arrange(p1, p2, p3, p4, nrow = 2)
 
 # Slice data, so that the training can be done in a reasonable amount of time
 rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
@@ -52,7 +57,5 @@ confusionMatrix(pred, tst$classe)
 
 # Predict with test data
 testing <- read.csv("data/pml-testing.csv")
-clean_t <- cleanUpInput(testing)
-pred <- predict(modFit, data = clean_t)
-confusionMatrix(pred, rfDF$classe)
-
+clean_t <- cleanUpInput(testing, isTest = TRUE)
+pred <- predict(modFit, clean_t$df)
