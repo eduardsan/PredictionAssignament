@@ -18,35 +18,27 @@ library(e1071)
 
 In this project, the goal is to predict the manner in which an exercise was done using data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
 
-## Understanding the structure of the data
-
-The Weight Lifting Exercise Dataset contains thousands of data points. Some of them are measurements at a point in time and some of them are covariates obtained by the application of a certain function, such as min, max, average and more advanced ones. Measurements are grouped in time windows and the functions for generating new covariates operate on those that belong to the same window. These new covariates are the interesting ones for the prediction exercise, because they provide summarised information about the activity of the participants while performing the exercise.
-
 ## Tidying up the data
 
-To select the interesting data for the assignment and tidying it up we perform the following steps:
+The dataset contains many empty fields and needs some tidying up before we can proceed with the rest of steps. To clean the data the following operations are performed:
 
-1. Select only rows that contain aggregate measurements (flagged in the dataset with `new_window == "yes"`).
-2. Ignore variables that are not useful for prediction, e.g., *user_name*, timestamps and direct measurements.
-3. Remove variables with near zero variance using R's `nearZeroVar()` function.
-4. Turn factor variables to numeric.
-5. Remove columns which have *NAs* using R's `impute()` function.
+1. Remove variables that are not useful for prediction, e.g., *user_name*, timestamps and direct measurements.
+2. Remove variables with near zero variance using R's `nearZeroVar()` function.
+3. Turn factor variables to numeric.
+4. Remove columns which have *NAs* using R's `impute()` function.
 
 ```
 # Non-aggregate variables and variables that are not going to be used for prediction:
 ignoreList <- c("X", "user_name",    "new_window",           "num_window",
-                "cvtd_timestamp",    "raw_timestamp_part_1", "raw_timestamp_part_2", 
-                "roll_belt",         "pitch_belt",           "yaw_belt",
-                ...
-                "magnet_forearm_x",  "magnet_forearm_y",     "magnet_forearm_z")
+                "cvtd_timestamp",    "raw_timestamp_part_1", "raw_timestamp_part_2")
                 
 cleanUpInput <- function(inputDF, ignore = ignoreList) {
 
   classeValues <- inputDF$classe
   
   # Remove variables from ignore
-  clean1 <- inputDF[, !(names(inputDF) %in% c(ignore, "classe"))]  
-
+  clean1 <- inputDF[, !(names(inputDF) %in% c(ignore, "classe"))]
+  
   # Remove variables with near zero variance
   clean2 <- clean1[,-nearZeroVar(clean1)]
 
@@ -72,7 +64,7 @@ The same steps will be applied to the testing data for validating the model's pe
 
 ## Feature selection
 
-To make an initial selection of features I computed a correlation matrix. The big quantity of variables makes it difficult to visualize all relationship or to do this task manually. For these reasons I made a function that iterates over all variables discarding those whose correlation factor with an already selected variable equals or exceeds a given threshold.
+To make an initial selection of features I computed a correlation matrix. The amount of variables makes it difficult to visualize all relationships or to compare them manually. For these reasons I made a function that iterates over all variables discarding those whose correlation factor with an already selected variable equals or exceeds a given threshold.
 
 ```
 processCorMatrix <- function(corMatrix, threshold = 0.75) {
@@ -104,7 +96,7 @@ processCorMatrix <- function(corMatrix, threshold = 0.75) {
 }
 ```
 
-The following script makes use of the previous support function to tidy up the dataset and perform an initial selection of covariates. 
+The following script makes use of the previous support functions to tidy up the dataset and perform an initial selection of covariates. 
 
 ```{r main, warning=FALSE}
 # source support code
@@ -118,59 +110,91 @@ set.seed(123)
 training <- read.csv("data/pml-training.csv")
 
 # Tidy data
-clean <- cleanUpInput(training[training$new_window == "yes",])
+clean <- cleanUpInput(training)
 
 # Use correlation matrix to select variables
 correlationMatrix <- cor(clean$df)
-selVars <- processCorMatrix(correlationMatrix, .8)
+selVars <- processCorMatrix(correlationMatrix)
 colnames(correlationMatrix)[selVars]
 ```
 
-The resulting list of covariates is still rather long. Plotting and visual inspection of the variables does not help much either. It is difficult to identify clear patterns that could lead to candidates for the model. At this point I decide to leave the heavy lifting to the Caret package.
+The resulting list of covariates is still long. Plotting and visual inspection of the variables does not provide clear hints about which variables would be the more appropriate to construct the model. It is difficult to identify clear patterns that could lead to candidates for the model. At this point I decide to leave the heavy lifting to the Caret package.
+
+**TODO: Afegir figura on es vegi algun patró**
 
 ## Building the model
 
-Between the handful of training methods presented in the "Practical Machine Learning" course, random forests seem a reasonable option. According to the course material, they have good accuracy, although they may suffer from low speed, difficult interpretability and overfitting. Speed is not a problem with the dataset at hand. Interpretability may hard, but it was already difficult to find clear patterns during the exploratory analysis.
+Between the handful of training methods presented in the "Practical Machine Learning" course, random forests seem a reasonable option. According to the course material, they have good accuracy, although they may suffer from low training speed, difficult interpretability and overfitting. Speed turns out to be an issue with the problem and the resources at hand. To keep the computing time around ten minutes, only a sample (35%) of the available training data is used for training the model.
 
-To create the prediction model I take advantage of the capabilities of the `train()` function. In particular, I use the `trainControl()` function to specify how cross validation will be performed.
+```{r slicing}
+rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
 
-**TODO: Afegir explicació cross validation**
+inTrain <- createDataPartition(y = clean$classe, p = .35, list = FALSE)
+trn <- rfDF[inTrain, ]
+tst <- rfDF[-inTrain, ]
+```
+
+To create the prediction model I take advantage of the capabilities of the `train()` function. In particular, I use the `trainControl()` function to specify how cross validation will be performed. In the code snippet below, the configuration is defined to perform 10-fold cross-validation.
 
 ```{r fitControl}
-fitControl <- trainControl(## 10-fold CV
-  method = "repeatedcv",
-  number = 6,
-  ## repeated ten times
-  repeats = 10)
+fitControl <- trainControl(
+  method = "cv",
+  number = 10)
 ```
+
+Now we let Caret do the training using random forests and the specified configuration parameters. The features that will be considered are those obtained after evaluating the correlation matrix (see **Feature selection** section above).
 
 ```{r training}
-rfDF <- cbind(clean$df[,selVars], 'classe' = clean$classe)
-modFitAll <-
-  train(classe ~ ., data = rfDF, method = "rf", trControl = fitControl)
+modFit <-
+  train(classe ~ ., data = trn, method = "rf", trControl = fitControl)
 ```
 
+To check how the selection of certain parameters affects the resulting model, some other options were tested. The table below shows the `Accuracy` of four computed models. Column labels indicate what threshold was used for the correlation factor used to choose variables (in parenthesis the number of variables). Row labels indicate which value was used for k-folding.
 
-Out of sample error should be slightly bigger than reported by the model, rf has a tendency to overfitting.
+Below we see some properties of the resulting model. 6869 samples and 37 predictors were used, and the maximum accuracy reached was 0.98.
+
+```{r model}
+modFit
+```
+
+This is the confusion matrix of the final model:
+
+```{r confusion}
+modFit$finalModel$confusion
+```
+
+Before testing the model with the test data, we can evaluate the model with the remaining values from our previous partitioning (which was done due to performance considerations). We find out that accuracy is very close to the one reached by the model.
+
+```{r pre-test}
+pred <- predict(modFit, tst)
+cm <- confusionMatrix(pred, tst$classe)
+
+cm$overall[1]
+cm$table
+```
+
+It is also interesting to have a look at the importance of the involved variables:
+
+```{r importance}
+plot(varImp(modFit, scale=FALSE))
+```
 
 ## Predict with the test data
 
+As the last step, we predict one more time, but using the test data that was reserved for this purpose.
 
-[//]: (how you used cross validation)
+```{r final-test}
+testing <- read.csv("data/pml-testing.csv")
+clean_t <- cleanUpInput(testing)
+pred <- predict(modFit, data = clean_t)
+cm <- confusionMatrix(pred, clean_t$classe)
 
-[//]: (what you think the expected out of sample error is)
-
-[//]: (why you made the choices you did)
-
-[//]: (You will also use your prediction model to predict 20 different test cases.)
-
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+cm$overall[1]
+cm$table
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Conclusion
+
+The main problem encountered while doing the project was understanding the structure of the input data. Rows that seem to contain instant measurements are combined with rows that contain aggregated values, such as averages, minimums or maximums, among other more complex functions. Some columns only make sense for the latter, which means there are lots of empty fields. This was confusing and my inclination was to believe that the relevant rows were the ones with aggregate values, which somehow would summarize and characterize the performance of the participants during the whole duration of one run of the exercise. It wasn't until I had a look at the test data that I realized I was doing it wrong.
+
+The second problem was selecting the variables, there are many of them and manual approaches and visual inspection of many plots would not help. And, finally, choosing a training method and its related parameters was not an easy decision either. The **Practical Machine Learning** course of the **Data Science Specialization** covers a lot of material rather superficially. Although I researched other resources to learn more about the topic, in the end my decisions were based on trial and error than on solid arguments.

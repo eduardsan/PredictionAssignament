@@ -1,3 +1,5 @@
+# Returns a list of variables with correlation factors lower than
+# the specified threshold.
 processCorMatrix <- function(corMatrix, threshold = 0.75) {
   # Initialize selected and discarded sets
   select <- vector("numeric")
