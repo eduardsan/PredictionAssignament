@@ -190,7 +190,7 @@ plot(varImp(modFit, scale=FALSE))
 
 ## Predict with the test data
 
-As the last step, we predict one more time, but using the test data that was reserved for this purpose.
+As the last step, we predict one more time, but using the test data that was reserved for this purpose. The expected accuracy should be close to 0.98, which is the value obtained when the model was evaluated with cross-validation.
 
 ```{r final-test}
 testing <- read.csv("data/pml-testing.csv")

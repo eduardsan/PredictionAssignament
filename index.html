@@ -306,7 +306,7 @@ cm$overall[1]</code></pre>
 </div>
 <div id="predict-with-the-test-data" class="section level2">
 <h2>Predict with the test data</h2>
-<p>As the last step, we predict one more time, but using the test data that was reserved for this purpose.</p>
+<p>As the last step, we predict one more time, but using the test data that was reserved for this purpose. The expected accuracy should be close to 0.98, which is the value obtained when the model was evaluated with cross-validation.</p>
 <pre class="r"><code>testing &lt;- read.csv(&quot;data/pml-testing.csv&quot;)
 clean_t &lt;- cleanUpInput(testing, isTest = TRUE)
 predict(modFit, clean_t$df)</code></pre>
